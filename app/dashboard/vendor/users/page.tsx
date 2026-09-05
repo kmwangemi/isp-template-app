@@ -1,44 +1,125 @@
 'use client';
 
 import { useAuthStore } from '@/lib/store/auth';
-import { useHotspotUsers } from '@/lib/api/queries';
+import { useHotspotUsers, useRouters } from '@/lib/api/queries';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { useState, useMemo } from 'react';
+import { SearchFilterControls } from '@/components/dashboard/search-filter-controls';
+import { PaginationControls } from '@/components/dashboard/pagination-controls';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Plus, Trash2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import {
+  Calendar,
+  X,
+  Send,
+  Ban,
+  MoreVertical,
+  Copy,
+  Check,
+  Mail,
+  Phone,
+  Router as RouterIcon,
+  Clock,
+  CreditCard,
+  Ticket,
+  Loader2,
+} from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { type HotspotUser, mockRoutersData } from '@/lib/api/mockData';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
-  DialogTrigger,
+  DialogDescription,
 } from '@/components/ui/dialog';
-import Link from 'next/link';
-import { useState, useMemo } from 'react';
-import { useToast } from '@/hooks/use-toast';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export default function UsersPage() {
   const { user } = useAuthStore();
   const { data: users, isLoading } = useHotspotUsers(user?.vendorId);
+  const { data: routers } = useRouters(user?.vendorId);
   const { toast } = useToast();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
-  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [dateRange, setDateRange] = useState('all');
+  const [showCustomRange, setShowCustomRange] = useState(false);
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const itemsPerPage = 10;
 
-  const activeUsers = users?.filter((u) => u.status === 'active').length || 0;
-  const inactiveUsers = users?.filter((u) => u.status === 'inactive').length || 0;
-  const expiredUsers = users?.filter((u) => u.status === 'expired').length || 0;
+  // Actions State
+  const [sendUser, setSendUser] = useState<HotspotUser | null>(null);
+  const [sendChannel, setSendChannel] = useState<'sms' | 'email'>('sms');
+  const [sendRecipient, setSendRecipient] = useState('');
+  const [isSending, setIsSending] = useState(false);
+
+  const [revokeUser, setRevokeUser] = useState<HotspotUser | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const activeUsersCount = users?.filter((u) => u.status === 'active').length || 0;
+  const inactiveUsersCount = users?.filter((u) => u.status === 'inactive').length || 0;
+  const expiredUsersCount = users?.filter((u) => u.status === 'expired').length || 0;
+
+  const getRouterName = (userItem: HotspotUser) => {
+    if (userItem.routerName && !userItem.routerName.match(/^\d+$/)) {
+      return userItem.routerName;
+    }
+    const match = (routers || mockRoutersData).find((r) => r.id === userItem.routerId);
+    return match ? match.name : `Router ${userItem.routerId}`;
+  };
 
   const filteredAndPaginatedUsers = useMemo(() => {
-    if (!users) return { users: [], totalPages: 0 };
+    if (!users) return { users: [], totalPages: 0, totalCount: 0 };
     
-    const filtered = users.filter((u) =>
-      u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.email?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filtered = users.filter((u) => {
+      const routerName = getRouterName(u);
+      const matchesSearch =
+        u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.voucherCode && u.voucherCode.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (u.phoneNumber && u.phoneNumber.includes(searchTerm)) ||
+        (u.email && u.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        routerName.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
+
+      let matchesDate = true;
+      if (dateRange !== 'all') {
+        const uDate = new Date(u.expiryDate);
+        if (dateRange.includes('_')) {
+          const [startStr, endStr] = dateRange.split('_');
+          const start = new Date(startStr);
+          const end = new Date(endStr);
+          end.setHours(23, 59, 59, 999);
+          matchesDate = uDate >= start && uDate <= end;
+        } else {
+          const days = parseInt(dateRange, 10);
+          if (!isNaN(days)) {
+            const pastDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+            matchesDate = uDate >= pastDate;
+          }
+        }
+      }
+
+      return matchesSearch && matchesStatus && matchesDate;
+    });
     
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
     const startIdx = (currentPage - 1) * itemsPerPage;
@@ -49,26 +130,64 @@ export default function UsersPage() {
       totalPages,
       totalCount: filtered.length,
     };
-  }, [users, searchTerm, currentPage]);
+  }, [users, searchTerm, statusFilter, dateRange, currentPage, routers]);
 
-  const handleDeleteUser = async () => {
-    setIsDeletingUser(true);
+  const handleOpenSend = (userItem: HotspotUser, channel: 'sms' | 'email') => {
+    setSendUser(userItem);
+    setSendChannel(channel);
+    setSendRecipient(channel === 'sms' ? (userItem.phoneNumber || '') : (userItem.email || ''));
+  };
+
+  const handleConfirmSend = async () => {
+    if (!sendUser) return;
+    setIsSending(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await new Promise((res) => setTimeout(res, 600));
       toast({
-        title: 'Success',
-        description: 'User deleted successfully.',
+        title: 'Voucher Sent Successfully',
+        description: `Sent voucher credentials to ${sendRecipient} via ${sendChannel.toUpperCase()}.`,
       });
-      setDeleteUserId(null);
-    } catch (error) {
+      setSendUser(null);
+    } catch (err) {
       toast({
-        title: 'Error',
-        description: 'Failed to delete user.',
+        title: 'Failed to Send',
+        description: 'Could not send voucher credentials.',
         variant: 'destructive',
       });
     } finally {
-      setIsDeletingUser(false);
+      setIsSending(false);
     }
+  };
+
+  const handleConfirmRevoke = async () => {
+    if (!revokeUser) return;
+    setIsRevoking(true);
+    try {
+      await new Promise((res) => setTimeout(res, 600));
+      toast({
+        title: 'Session Revoked',
+        description: `Session for ${revokeUser.username} has been revoked successfully.`,
+      });
+      setRevokeUser(null);
+    } catch (err) {
+      toast({
+        title: 'Revoke Failed',
+        description: 'Failed to revoke user session.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRevoking(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    toast({
+      title: 'Copied',
+      description: `Voucher code ${text} copied to clipboard.`,
+    });
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   return (
@@ -77,39 +196,126 @@ export default function UsersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Hotspot Users</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage your hotspot accounts</p>
+          <p className="text-sm text-muted-foreground mt-1">Monitor, communicate, and manage user sessions</p>
         </div>
-        <Link href="/dashboard/vendor/users/add">
-          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
-            <Plus className="w-4 h-4" />
-            Add User
-          </Button>
-        </Link>
+        <Select
+          value={dateRange}
+          onValueChange={(value) => {
+            if (value === 'custom') {
+              setShowCustomRange(true);
+            } else {
+              setDateRange(value);
+              setShowCustomRange(false);
+              setCurrentPage(1);
+            }
+          }}
+        >
+          <SelectTrigger className="w-48 bg-card border-border">
+            <SelectValue placeholder="Date Range" />
+          </SelectTrigger>
+          <SelectContent className="bg-card border-border">
+            <SelectItem value="all">All Time</SelectItem>
+            <SelectItem value="7">Last 7 days</SelectItem>
+            <SelectItem value="30">Last 30 days</SelectItem>
+            <SelectItem value="90">Last 90 days</SelectItem>
+            <SelectItem value="custom">Custom range</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
-      {/* Search */}
-      {users && users.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by username or email..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="bg-card border-border pl-10"
-          />
-        </div>
+      {/* Custom Date Range Picker */}
+      {showCustomRange && (
+        <Card className="bg-card border-border p-6">
+          <div className="flex flex-col sm:flex-row items-end gap-4">
+            <div className="flex-1 w-full">
+              <label className="text-sm text-muted-foreground block mb-2">Start Date</label>
+              <div className="flex items-center relative">
+                <Calendar className="w-4 h-4 text-muted-foreground absolute ml-3" />
+                <Input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="bg-background border-border pl-10 w-full"
+                />
+              </div>
+            </div>
+            <div className="flex-1 w-full">
+              <label className="text-sm text-muted-foreground block mb-2">End Date</label>
+              <div className="flex items-center relative">
+                <Calendar className="w-4 h-4 text-muted-foreground absolute ml-3" />
+                <Input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="bg-background border-border pl-10 w-full"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 w-full sm:w-auto">
+              <Button
+                className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1 sm:flex-initial"
+                onClick={() => {
+                  if (customStartDate && customEndDate) {
+                    setDateRange(`${customStartDate}_${customEndDate}`);
+                    setShowCustomRange(false);
+                    setCurrentPage(1);
+                  }
+                }}
+                disabled={!customStartDate || !customEndDate}
+              >
+                Apply
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  setShowCustomRange(false);
+                  setDateRange('all');
+                  setCurrentPage(1);
+                }}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </Card>
       )}
 
-      {/* Stats */}
+      {/* Search & Filter Controls */}
+      {users && users.length > 0 && (
+        <SearchFilterControls
+          searchTerm={searchTerm}
+          onSearchChange={(val) => {
+            setSearchTerm(val);
+            setCurrentPage(1);
+          }}
+          searchPlaceholder="Search by username, voucher code, phone, email, or router..."
+          filters={[
+            {
+              value: statusFilter,
+              onValueChange: (val) => {
+                setStatusFilter(val);
+                setCurrentPage(1);
+              },
+              placeholder: "Filter Status",
+              options: [
+                { label: "All Statuses", value: "all" },
+                { label: "Active", value: "active" },
+                { label: "Inactive", value: "inactive" },
+                { label: "Expired", value: "expired" },
+              ],
+            },
+          ]}
+        />
+      )}
+
+      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="bg-card border-border">
           <CardContent className="pt-6">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Active Users</p>
-              <p className="text-2xl font-bold text-foreground">{activeUsers}</p>
+              <p className="text-2xl font-bold text-foreground">{activeUsersCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -117,7 +323,7 @@ export default function UsersPage() {
           <CardContent className="pt-6">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Inactive Users</p>
-              <p className="text-2xl font-bold text-foreground">{inactiveUsers}</p>
+              <p className="text-2xl font-bold text-foreground">{inactiveUsersCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -125,7 +331,7 @@ export default function UsersPage() {
           <CardContent className="pt-6">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">Expired Users</p>
-              <p className="text-2xl font-bold text-foreground">{expiredUsers}</p>
+              <p className="text-2xl font-bold text-foreground">{expiredUsersCount}</p>
             </div>
           </CardContent>
         </Card>
@@ -134,112 +340,161 @@ export default function UsersPage() {
       {/* Users Table */}
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-lg">All Users</CardTitle>
+          <CardTitle className="text-lg">All Users & Voucher Details</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-muted-foreground font-semibold">
-                    Username
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-semibold">
-                    Package
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-semibold">
-                    Router
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-semibold">
-                    Status
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-semibold">
-                    Expiry Date
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-semibold">
-                    Last Login
-                  </th>
-                  <th className="text-left py-3 px-4 text-muted-foreground font-semibold">
-                    Action
-                  </th>
+                <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground bg-background/50">
+                  <th className="text-left py-3 px-4 font-semibold">User & Voucher Code</th>
+                  <th className="text-left py-3 px-4 font-semibold">Contact (Phone / Email)</th>
+                  <th className="text-left py-3 px-4 font-semibold">Target Router Name</th>
+                  <th className="text-left py-3 px-4 font-semibold">Amount & Duration</th>
+                  <th className="text-left py-3 px-4 font-semibold">Bought At</th>
+                  <th className="text-left py-3 px-4 font-semibold">Expires At</th>
+                  <th className="text-left py-3 px-4 font-semibold">Status</th>
+                  <th className="text-center py-3 px-4 font-semibold">Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="py-8 text-center text-muted-foreground">
                       Loading users...
                     </td>
                   </tr>
                 ) : filteredAndPaginatedUsers.users && filteredAndPaginatedUsers.users.length > 0 ? (
-                  filteredAndPaginatedUsers.users.map((u) => (
-                    <tr key={u.id} className="border-b border-border hover:bg-background/50">
-                      <td className="py-3 px-4 text-foreground font-semibold">{u.username}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{u.packageId}</td>
-                      <td className="py-3 px-4 text-muted-foreground">{u.routerId}</td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`px-2 py-1 rounded text-xs font-semibold ${
-                            u.status === 'active'
-                              ? 'bg-green-500/20 text-green-500'
-                              : u.status === 'inactive'
-                                ? 'bg-yellow-500/20 text-yellow-500'
-                                : 'bg-red-500/20 text-red-500'
-                          }`}
-                        >
-                          {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground">
-                        {new Date(u.expiryDate).toLocaleDateString()}
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground">
-                        {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}
-                      </td>
-                      <td className="py-3 px-4">
-                        <Dialog open={deleteUserId === u.id} onOpenChange={(open) => !open && setDeleteUserId(null)}>
-                          <DialogTrigger asChild>
+                  filteredAndPaginatedUsers.users.map((u) => {
+                    const routerNameStr = getRouterName(u);
+                    const voucherCodeStr = u.voucherCode || `VOUCH-${u.id.toUpperCase()}`;
+                    const phoneStr = u.phoneNumber || '+254 700 000 000';
+                    const amountVal = u.amount || 50.0;
+                    const boughtAtStr = u.boughtAt || (u.createdAt ? new Date(u.createdAt).toLocaleString() : 'N/A');
+                    const expiresAtStr = u.expiryDate ? new Date(u.expiryDate).toLocaleString() : 'N/A';
+                    const durationStr = u.duration || '1 Hour';
+
+                    return (
+                      <tr key={u.id} className="hover:bg-background/40 transition-colors">
+                        {/* Username & Voucher Code */}
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-foreground">{u.username}</div>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                              {voucherCodeStr}
+                            </span>
                             <button
-                              onClick={() => setDeleteUserId(u.id)}
-                              className="text-red-500 hover:text-red-600 transition-colors"
+                              onClick={() => copyToClipboard(voucherCodeStr, u.id)}
+                              className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                              title="Copy Voucher Code"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {copiedId === u.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
                             </button>
-                          </DialogTrigger>
-                          <DialogContent className="bg-card border-border">
-                            <DialogHeader>
-                              <DialogTitle>Delete User: {u.username}</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4">
-                              <p className="text-sm text-muted-foreground">
-                                Are you sure you want to delete this user? This action cannot be undone.
-                              </p>
-                              <div className="bg-background/50 p-3 rounded-lg text-xs">
-                                <p><span className="text-muted-foreground">Username:</span> <span className="font-semibold">{u.username}</span></p>
-                                <p><span className="text-muted-foreground">Email:</span> <span className="font-semibold">{u.email || 'N/A'}</span></p>
-                                <p><span className="text-muted-foreground">Status:</span> <span className="font-semibold">{u.status}</span></p>
-                              </div>
+                          </div>
+                        </td>
+
+                        {/* Phone & Email */}
+                        <td className="py-3 px-4">
+                          <div className="text-foreground font-medium text-xs flex items-center gap-1">
+                            <Phone className="w-3 h-3 text-muted-foreground" />
+                            {phoneStr}
+                          </div>
+                          {u.email && (
+                            <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <Mail className="w-3 h-3 text-muted-foreground" />
+                              {u.email}
                             </div>
-                            <DialogFooter className="gap-2">
-                              <DialogTrigger asChild>
-                                <Button variant="outline">Cancel</Button>
-                              </DialogTrigger>
-                              <Button
-                                variant="destructive"
-                                onClick={handleDeleteUser}
-                                disabled={isDeletingUser}
-                              >
-                                {isDeletingUser ? 'Deleting...' : 'Delete'}
+                          )}
+                        </td>
+
+                        {/* Router Name */}
+                        <td className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1.5 text-foreground font-medium text-xs bg-background px-2.5 py-1 rounded-md border border-border">
+                            <RouterIcon className="w-3.5 h-3.5 text-primary" />
+                            {routerNameStr}
+                          </span>
+                        </td>
+
+                        {/* Amount & Duration */}
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-foreground">KES {amountVal.toFixed(2)}</div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Clock className="w-3 h-3 text-muted-foreground" />
+                            {durationStr}
+                          </div>
+                        </td>
+
+                        {/* Bought At */}
+                        <td className="py-3 px-4 text-xs text-muted-foreground">
+                          {boughtAtStr}
+                        </td>
+
+                        {/* Expires At */}
+                        <td className="py-3 px-4 text-xs text-muted-foreground font-medium">
+                          {expiresAtStr}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              u.status === 'active'
+                                ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                : u.status === 'inactive'
+                                  ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                                  : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                            }`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              u.status === 'active' ? 'bg-emerald-500' : u.status === 'inactive' ? 'bg-amber-500' : 'bg-rose-500'
+                            }`}></span>
+                            {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
+                          </span>
+                        </td>
+
+                        {/* Actions */}
+                        <td className="py-3 px-4 text-center">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreVertical className="w-4 h-4" />
                               </Button>
-                            </DialogFooter>
-                          </DialogContent>
-                        </Dialog>
-                      </td>
-                    </tr>
-                  ))
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="bg-card border-border w-44">
+                              <DropdownMenuItem
+                                onClick={() => handleOpenSend(u, 'sms')}
+                                className="gap-2 cursor-pointer"
+                              >
+                                <Phone className="w-4 h-4 text-blue-500" />
+                                Send SMS
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleOpenSend(u, 'email')}
+                                className="gap-2 cursor-pointer"
+                              >
+                                <Mail className="w-4 h-4 text-emerald-500" />
+                                Send Email
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => setRevokeUser(u)}
+                                className="gap-2 cursor-pointer text-rose-500 focus:text-rose-500"
+                              >
+                                <Ban className="w-4 h-4" />
+                                Revoke Session
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="py-8 text-center text-muted-foreground">
                       No users found
                     </td>
                   </tr>
@@ -248,39 +503,121 @@ export default function UsersPage() {
             </table>
           </div>
 
-          {/* Pagination */}
-          {filteredAndPaginatedUsers.totalPages > 1 && (
-            <div className="flex items-center justify-between mt-6 pt-6 border-t border-border">
-              <p className="text-sm text-muted-foreground">
-                Page {currentPage} of {filteredAndPaginatedUsers.totalPages} (
-                {filteredAndPaginatedUsers.totalCount} users)
-              </p>
-              <div className="flex gap-2">
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={filteredAndPaginatedUsers.totalPages}
+            totalItems={filteredAndPaginatedUsers.totalCount}
+            itemsLabel="users"
+            onPageChange={setCurrentPage}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Send Email/SMS Modal */}
+      <Dialog open={!!sendUser} onOpenChange={(open) => !open && setSendUser(null)}>
+        <DialogContent className="bg-card border-border sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="text-foreground flex items-center gap-2">
+              <Send className="w-5 h-5 text-primary" />
+              Send Voucher Details
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Send login voucher credentials for <span className="font-semibold text-foreground">{sendUser?.username}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label>Delivery Method</Label>
+              <div className="grid grid-cols-2 gap-2">
                 <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
+                  type="button"
+                  variant={sendChannel === 'sms' ? 'default' : 'outline'}
+                  onClick={() => {
+                    setSendChannel('sms');
+                    setSendRecipient(sendUser?.phoneNumber || '+254 712 345 678');
+                  }}
+                  className={sendChannel === 'sms' ? 'bg-primary text-primary-foreground gap-2' : 'gap-2'}
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
+                  <Phone className="w-4 h-4" /> SMS
                 </Button>
                 <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setCurrentPage(Math.min(filteredAndPaginatedUsers.totalPages, currentPage + 1))}
-                  disabled={currentPage === filteredAndPaginatedUsers.totalPages}
+                  type="button"
+                  variant={sendChannel === 'email' ? 'default' : 'outline'}
+                  onClick={() => {
+                    setSendChannel('email');
+                    setSendRecipient(sendUser?.email || `${sendUser?.username}@example.com`);
+                  }}
+                  className={sendChannel === 'email' ? 'bg-primary text-primary-foreground gap-2' : 'gap-2'}
                 >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
+                  <Mail className="w-4 h-4" /> Email
                 </Button>
               </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            <div className="space-y-2">
+              <Label htmlFor="send-recipient">
+                {sendChannel === 'sms' ? 'Phone Number' : 'Email Address'}
+              </Label>
+              <Input
+                id="send-recipient"
+                value={sendRecipient}
+                onChange={(e) => setSendRecipient(e.target.value)}
+                placeholder={sendChannel === 'sms' ? '+254 712 345 678' : 'user@example.com'}
+                className="bg-background border-border"
+              />
+            </div>
+
+            <div className="p-3 bg-background rounded-lg border border-border space-y-1 text-xs text-muted-foreground">
+              <div className="flex justify-between">
+                <span>Voucher Code:</span>
+                <span className="font-mono text-foreground font-semibold">{sendUser?.voucherCode || `VOUCH-${sendUser?.id.toUpperCase()}`}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Duration:</span>
+                <span className="text-foreground font-semibold">{sendUser?.duration || '1 Hour'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Router:</span>
+                <span className="text-foreground font-semibold">{sendUser ? getRouterName(sendUser) : ''}</span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendUser(null)} disabled={isSending}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmSend} disabled={isSending} className="bg-primary text-primary-foreground gap-2">
+              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Send Credentials
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke Session Modal */}
+      <Dialog open={!!revokeUser} onOpenChange={(open) => !open && setRevokeUser(null)}>
+        <DialogContent className="bg-card border-border sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="text-foreground flex items-center gap-2">
+              <Ban className="w-5 h-5 text-rose-500" />
+              Revoke User Session
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Are you sure you want to revoke the active session for <span className="font-semibold text-foreground">{revokeUser?.username}</span>?
+              They will be disconnected from <span className="font-semibold text-foreground">{revokeUser ? getRouterName(revokeUser) : ''}</span> immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setRevokeUser(null)} disabled={isRevoking}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmRevoke} disabled={isRevoking} className="gap-2">
+              {isRevoking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+              Revoke Session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

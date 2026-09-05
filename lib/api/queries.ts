@@ -6,6 +6,8 @@ import {
   mockHotspotUsersData,
   mockSessionsData,
   mockTransactionsData,
+  mockStaticPackagesData,
+  mockStaticUsersData,
   generateRevenueData,
   generateUserGrowthData,
   generateSessionData,
@@ -19,6 +21,8 @@ import {
   type Session,
   type Vendor,
   type Transaction,
+  type StaticPackage,
+  type StaticUser,
 } from './mockData';
 
 // Router queries
@@ -121,9 +125,27 @@ export const useAddPackage = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: any) => {
-      return new Promise((resolve) => {
+      return new Promise<Package>((resolve) => {
         setTimeout(() => {
-          resolve({ id: Date.now().toString(), ...data, createdAt: new Date().toISOString() });
+          const selectedRouter = mockRoutersData.find((r) => r.id === data.routerId);
+          const newPackage: Package = {
+            id: `pkg_${Date.now()}`,
+            vendorId: data.vendorId || 'v1',
+            routerId: data.routerId && data.routerId !== 'all' ? data.routerId : undefined,
+            routerName: selectedRouter ? selectedRouter.name : 'All Routers',
+            name: data.name,
+            price: Number(data.price),
+            duration: Number(data.duration),
+            durationUnit: data.durationUnit || 'hours',
+            downloadLimit: data.downloadLimit ? Number(data.downloadLimit) : undefined,
+            downloadUnit: data.downloadUnit || 'Mbps',
+            uploadLimit: data.uploadLimit ? Number(data.uploadLimit) : undefined,
+            uploadUnit: data.uploadUnit || 'Mbps',
+            maxUsers: Number(data.maxSessions || 1),
+            createdAt: new Date().toISOString(),
+          };
+          mockPackagesData.unshift(newPackage);
+          resolve(newPackage);
         }, 300);
       });
     },
@@ -133,13 +155,17 @@ export const useAddPackage = () => {
   });
 };
 
-export const useUpdatePackage = (packageId: string) => {
+export const useUpdatePackage = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async ({ id, data }: { id: string; data: Partial<Package> }) => {
       return new Promise((resolve) => {
         setTimeout(() => {
-          resolve({ id: packageId, ...data });
+          const index = mockPackagesData.findIndex((p) => p.id === id);
+          if (index !== -1) {
+            mockPackagesData[index] = { ...mockPackagesData[index], ...data };
+          }
+          resolve({ id, ...data });
         }, 300);
       });
     },
@@ -149,12 +175,16 @@ export const useUpdatePackage = (packageId: string) => {
   });
 };
 
-export const useDeletePackage = (packageId: string) => {
+export const useDeletePackage = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (packageId: string) => {
       return new Promise((resolve) => {
         setTimeout(() => {
+          const index = mockPackagesData.findIndex((p) => p.id === packageId);
+          if (index !== -1) {
+            mockPackagesData.splice(index, 1);
+          }
           resolve({ success: true });
         }, 300);
       });
@@ -399,6 +429,210 @@ export const useTransactionVolumeData = () => {
           resolve(generateTransactionVolumeData());
         }, 300);
       });
+    },
+  });
+};
+
+// Static Package queries
+export const useStaticPackages = (vendorId?: string) => {
+  return useQuery({
+    queryKey: ['static-packages', vendorId],
+    queryFn: () => {
+      return new Promise<StaticPackage[]>((resolve) => {
+        setTimeout(() => {
+          const packages = vendorId
+            ? mockStaticPackagesData.filter((p) => p.vendorId === vendorId)
+            : mockStaticPackagesData;
+          resolve(packages);
+        }, 200);
+      });
+    },
+  });
+};
+
+export const useAddStaticPackage = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      return new Promise<StaticPackage>((resolve) => {
+        setTimeout(() => {
+          const selectedRouter = mockRoutersData.find((r) => r.id === data.routerId);
+          const newPackage: StaticPackage = {
+            id: `spkg_${Date.now()}`,
+            vendorId: data.vendorId || 'v1',
+            routerId: data.routerId && data.routerId !== 'all' ? data.routerId : undefined,
+            routerName: selectedRouter ? selectedRouter.name : 'All Routers',
+            name: data.name,
+            tier: data.tier || 'Gold',
+            price: Number(data.price),
+            duration: Number(data.duration),
+            durationUnit: data.durationUnit || 'months',
+            downloadLimit: data.downloadLimit ? Number(data.downloadLimit) : undefined,
+            downloadUnit: data.downloadUnit || 'Mbps',
+            uploadLimit: data.uploadLimit ? Number(data.uploadLimit) : undefined,
+            uploadUnit: data.uploadUnit || 'Mbps',
+            ipPool: data.ipPool,
+            status: data.status || 'active',
+            description: data.description,
+            createdAt: new Date().toISOString().split('T')[0],
+          };
+          mockStaticPackagesData.unshift(newPackage);
+          resolve(newPackage);
+        }, 300);
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['static-packages'] });
+    },
+  });
+};
+
+export const useUpdateStaticPackage = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<StaticPackage> }) => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const index = mockStaticPackagesData.findIndex((p) => p.id === id);
+          if (index !== -1) {
+            if (data.routerId) {
+              const r = mockRoutersData.find((router) => router.id === data.routerId);
+              data.routerName = r ? r.name : 'All Routers';
+            }
+            mockStaticPackagesData[index] = { ...mockStaticPackagesData[index], ...data };
+          }
+          resolve({ id, ...data });
+        }, 300);
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['static-packages'] });
+    },
+  });
+};
+
+export const useDeleteStaticPackage = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (packageId: string) => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const index = mockStaticPackagesData.findIndex((p) => p.id === packageId);
+          if (index !== -1) {
+            mockStaticPackagesData.splice(index, 1);
+          }
+          resolve({ success: true });
+        }, 300);
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['static-packages'] });
+    },
+  });
+};
+
+// Static User queries
+export const useStaticUsers = (vendorId?: string) => {
+  return useQuery({
+    queryKey: ['static-users', vendorId],
+    queryFn: () => {
+      return new Promise<StaticUser[]>((resolve) => {
+        setTimeout(() => {
+          const users = vendorId
+            ? mockStaticUsersData.filter((u) => u.vendorId === vendorId)
+            : mockStaticUsersData;
+          resolve(users);
+        }, 200);
+      });
+    },
+  });
+};
+
+export const useAddStaticUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: any) => {
+      return new Promise<StaticUser>((resolve) => {
+        setTimeout(() => {
+          const selectedRouter = mockRoutersData.find((r) => r.id === data.routerId);
+          const selectedPkg = mockStaticPackagesData.find((p) => p.id === data.packageId);
+          const newUser: StaticUser = {
+            id: `susr_${Date.now()}`,
+            vendorId: data.vendorId || 'v1',
+            name: data.name,
+            email: data.email || undefined,
+            phone: data.phone,
+            staticIp: data.staticIp,
+            packageId: data.packageId,
+            packageName: selectedPkg ? selectedPkg.name : 'Static Package',
+            packageTier: selectedPkg ? selectedPkg.tier : 'Gold',
+            price: selectedPkg ? selectedPkg.price : 0,
+            routerId: data.routerId,
+            routerName: selectedRouter ? selectedRouter.name : 'Unknown Router',
+            status: data.status || 'active',
+            subscribedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+            expiryDate: data.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            notes: data.notes,
+          };
+          mockStaticUsersData.unshift(newUser);
+          resolve(newUser);
+        }, 300);
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['static-users'] });
+    },
+  });
+};
+
+export const useUpdateStaticUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<StaticUser> }) => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const index = mockStaticUsersData.findIndex((u) => u.id === id);
+          if (index !== -1) {
+            if (data.routerId) {
+              const r = mockRoutersData.find((router) => router.id === data.routerId);
+              data.routerName = r ? r.name : undefined;
+            }
+            if (data.packageId) {
+              const p = mockStaticPackagesData.find((pkg) => pkg.id === data.packageId);
+              if (p) {
+                data.packageName = p.name;
+                data.packageTier = p.tier;
+                data.price = p.price;
+              }
+            }
+            mockStaticUsersData[index] = { ...mockStaticUsersData[index], ...data };
+          }
+          resolve({ id, ...data });
+        }, 300);
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['static-users'] });
+    },
+  });
+};
+
+export const useDeleteStaticUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const index = mockStaticUsersData.findIndex((u) => u.id === userId);
+          if (index !== -1) {
+            mockStaticUsersData.splice(index, 1);
+          }
+          resolve({ success: true });
+        }, 300);
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['static-users'] });
     },
   });
 };

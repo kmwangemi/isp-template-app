@@ -18,12 +18,12 @@ export function PaginationControls({
   itemsLabel = 'items',
   onPageChange,
 }: PaginationControlsProps) {
-  if (totalPages <= 1) return null;
+  const displayPages = Math.max(1, totalPages);
 
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between mt-6 pt-6 border-t border-border gap-4">
       <p className="text-sm text-muted-foreground">
-        Page {currentPage} of {totalPages} ({totalItems} total {itemsLabel})
+        Page {currentPage} of {displayPages} ({totalItems} total {itemsLabel})
       </p>
       <div className="flex gap-2 w-full sm:w-auto justify-end">
         <Button
@@ -31,7 +31,7 @@ export function PaginationControls({
           size="sm"
           className="gap-2 flex-1 sm:flex-initial"
           onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          disabled={currentPage === 1}
+          disabled={currentPage <= 1}
         >
           <ChevronLeft className="w-4 h-4" />
           Previous
@@ -40,8 +40,8 @@ export function PaginationControls({
           variant="outline"
           size="sm"
           className="gap-2 flex-1 sm:flex-initial"
-          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-          disabled={currentPage === totalPages}
+          onClick={() => onPageChange(Math.min(displayPages, currentPage + 1))}
+          disabled={currentPage >= displayPages}
         >
           Next
           <ChevronRight className="w-4 h-4" />
