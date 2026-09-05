@@ -26,10 +26,15 @@ import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
 import { ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
+import { useAddPackage, useRouters } from '@/lib/api/queries';
+import { useAuthStore } from '@/lib/store/auth';
 
 export default function AddPackagePage() {
   const router = useRouter();
+  const { user } = useAuthStore();
+  const { data: routers } = useRouters(user?.vendorId);
   const { toast } = useToast();
+  const addPackageMutation = useAddPackage();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm({
@@ -38,11 +43,13 @@ export default function AddPackagePage() {
       name: '',
       price: undefined,
       duration: undefined,
-      durationUnit: 'days',
+      durationUnit: 'hours',
       maxSessions: 1,
+      routerId: 'all',
       downloadLimit: undefined,
+      downloadUnit: 'Mbps',
       uploadLimit: undefined,
-      profileName: '',
+      uploadUnit: 'Mbps',
       description: '',
       status: 'active',
     },
@@ -51,7 +58,7 @@ export default function AddPackagePage() {
   const onSubmit = async (data: any) => {
     setIsLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await addPackageMutation.mutateAsync(data);
       toast({
         title: 'Success',
         description: 'Package created successfully.',
@@ -69,7 +76,7 @@ export default function AddPackagePage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 sm:p-8 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link href="/dashboard/vendor/packages">
@@ -90,8 +97,8 @@ export default function AddPackagePage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              {/* Basic Info */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Basic Info: Name & Price */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="name"
@@ -130,49 +137,79 @@ export default function AddPackagePage() {
                 />
               </div>
 
-              {/* Duration */}
-              <div className="grid grid-cols-3 gap-4">
-                <FormField
-                  control={form.control}
-                  name="duration"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Duration</FormLabel>
+              {/* Target Router - Full Width */}
+              <FormField
+                control={form.control}
+                name="routerId"
+                render={({ field }) => (
+                  <FormItem className="w-full">
+                    <FormLabel>Target Router</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="1"
-                          className="bg-background border-border"
-                          {...field}
-                        />
+                        <SelectTrigger className="bg-background border-border w-full">
+                          <SelectValue placeholder="Select router" />
+                        </SelectTrigger>
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="durationUnit"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Unit</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger className="bg-background border-border">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent className="bg-card border-border">
-                          <SelectItem value="days">Days</SelectItem>
-                          <SelectItem value="weeks">Weeks</SelectItem>
-                          <SelectItem value="months">Months</SelectItem>
-                          <SelectItem value="years">Years</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                      <SelectContent className="bg-card border-border">
+                        <SelectItem value="all">All Routers (Global)</SelectItem>
+                        {routers?.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name} ({r.ipAddress})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Duration (Value + Unit on ONE line) & Max Sessions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <FormLabel>Duration</FormLabel>
+                  <div className="flex gap-2">
+                    <FormField
+                      control={form.control}
+                      name="duration"
+                      render={({ field }) => (
+                        <FormItem className="flex-1 space-y-0">
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="1"
+                              className="bg-background border-border"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="durationUnit"
+                      render={({ field }) => (
+                        <FormItem className="w-32 space-y-0">
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger className="bg-background border-border">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className="bg-card border-border">
+                              <SelectItem value="minutes">Minutes</SelectItem>
+                              <SelectItem value="hours">Hours</SelectItem>
+                              <SelectItem value="days">Days</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+
                 <FormField
                   control={form.control}
                   name="maxSessions"
@@ -193,99 +230,129 @@ export default function AddPackagePage() {
                 />
               </div>
 
-              {/* Limits */}
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="downloadLimit"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Download Limit (GB) - Optional</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="No limit"
-                          className="bg-background border-border"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="uploadLimit"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Upload Limit (GB) - Optional</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="No limit"
-                          className="bg-background border-border"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              {/* Download & Upload Speed / Limits */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <FormLabel>Download Limit (Optional)</FormLabel>
+                  <div className="flex gap-2">
+                    <FormField
+                      control={form.control}
+                      name="downloadLimit"
+                      render={({ field }) => (
+                        <FormItem className="flex-1 space-y-0">
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="Speed or Data limit"
+                              className="bg-background border-border"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="downloadUnit"
+                      render={({ field }) => (
+                        <FormItem className="w-28 space-y-0">
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger className="bg-background border-border">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className="bg-card border-border">
+                              <SelectItem value="Mbps">Mbps</SelectItem>
+                              <SelectItem value="Kbps">Kbps</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <FormLabel>Upload Limit (Optional)</FormLabel>
+                  <div className="flex gap-2">
+                    <FormField
+                      control={form.control}
+                      name="uploadLimit"
+                      render={({ field }) => (
+                        <FormItem className="flex-1 space-y-0">
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="Speed or Data limit"
+                              className="bg-background border-border"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="uploadUnit"
+                      render={({ field }) => (
+                        <FormItem className="w-28 space-y-0">
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger className="bg-background border-border">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className="bg-card border-border">
+                              <SelectItem value="Mbps">Mbps</SelectItem>
+                              <SelectItem value="Kbps">Kbps</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
               </div>
 
-              {/* Profile & Status */}
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="profileName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Mikrotik Profile Name</FormLabel>
+              {/* Status - Full Width */}
+              <FormField
+                control={form.control}
+                name="status"
+                render={({ field }) => (
+                  <FormItem className="w-full">
+                    <FormLabel>Status</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <Input
-                          placeholder="e.g., 1hour"
-                          className="bg-background border-border"
-                          {...field}
-                        />
+                        <SelectTrigger className="bg-background border-border w-full">
+                          <SelectValue />
+                        </SelectTrigger>
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger className="bg-background border-border">
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent className="bg-card border-border">
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                      <SelectContent className="bg-card border-border">
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-              {/* Description */}
+              {/* Description - Full Width */}
               <FormField
                 control={form.control}
                 name="description"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description - Optional</FormLabel>
+                  <FormItem className="w-full">
+                    <FormLabel>Description (Optional)</FormLabel>
                     <FormControl>
                       <Input
                         placeholder="Package description"
-                        className="bg-background border-border"
+                        className="bg-background border-border w-full"
                         {...field}
                       />
                     </FormControl>

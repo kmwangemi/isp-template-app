@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Router, Wifi, WifiOff, AlertCircle } from 'lucide-react';
+import { Router, Wifi, WifiOff } from 'lucide-react';
 import { RouterStatus } from '@/lib/api/mockData';
 import Link from 'next/link';
 
@@ -10,12 +10,9 @@ interface RouterStatusCardProps {
 }
 
 export function RouterStatusCard({ router, href }: RouterStatusCardProps) {
-  const StatusIcon =
-    router.status === 'online' ? Wifi : router.status === 'offline' ? WifiOff : AlertCircle;
+  const StatusIcon = router.status === 'online' ? Wifi : WifiOff;
   const statusColor =
-    router.status === 'online' ? 'bg-green-500/20 text-green-500' : 
-    router.status === 'offline' ? 'bg-red-500/20 text-red-500' :
-    'bg-yellow-500/20 text-yellow-500';
+    router.status === 'online' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500';
 
   const content = (
     <Card className="bg-card border-border hover:border-primary/50 transition-colors">

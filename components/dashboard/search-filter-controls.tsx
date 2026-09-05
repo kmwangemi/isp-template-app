@@ -32,7 +32,7 @@ export function SearchFilterControls({
 }: SearchFilterControlsProps) {
   return (
     <div className="flex flex-col md:flex-row gap-4 items-center justify-between mb-6 w-full">
-      <div className="relative w-full md:max-w-xs flex items-center">
+      <div className="relative flex-1 w-full flex items-center">
         <Search className="w-4 h-4 text-muted-foreground absolute ml-3" />
         <Input
           placeholder={searchPlaceholder}
@@ -43,7 +43,7 @@ export function SearchFilterControls({
       </div>
 
       {filters.length > 0 && (
-        <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-4 w-full md:w-auto shrink-0">
           {filters.map((filter, index) => (
             <Select
               key={index}

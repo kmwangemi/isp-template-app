@@ -3,11 +3,9 @@
 import { useAuthStore } from '@/lib/store/auth';
 import { useRouters } from '@/lib/api/queries';
 import { RouterStatusCard } from '@/components/dashboard/router-status-card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Plus, Search, ChevronLeft, ChevronRight } from 'lucide-react';
-import Link from 'next/link';
 import { useState, useMemo } from 'react';
+import { SearchFilterControls } from '@/components/dashboard/search-filter-controls';
+import { PaginationControls } from '@/components/dashboard/pagination-controls';
 
 export default function RoutersPage() {
   const { user } = useAuthStore();
@@ -16,13 +14,18 @@ export default function RoutersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 6;
 
+  const [statusFilter, setStatusFilter] = useState('all');
+
   const filteredAndPaginatedRouters = useMemo(() => {
-    if (!routers) return { routers: [], totalPages: 0 };
+    if (!routers) return { routers: [], totalPages: 0, totalCount: 0 };
     
-    const filtered = routers.filter((router) =>
-      router.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      router.ipAddress.includes(searchTerm)
-    );
+    const filtered = routers.filter((router) => {
+      const matchesSearch =
+        router.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        router.ipAddress.includes(searchTerm);
+      const matchesStatus = statusFilter === 'all' || router.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
     
     const totalPages = Math.ceil(filtered.length / itemsPerPage);
     const startIdx = (currentPage - 1) * itemsPerPage;
@@ -33,7 +36,7 @@ export default function RoutersPage() {
       totalPages,
       totalCount: filtered.length,
     };
-  }, [routers, searchTerm, currentPage]);
+  }, [routers, searchTerm, statusFilter, currentPage]);
 
   return (
     <div className="p-4 sm:p-8 space-y-6">
@@ -41,30 +44,35 @@ export default function RoutersPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Routers</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage your hotspot routers</p>
+          <p className="text-sm text-muted-foreground mt-1">Manage and view your hotspot routers</p>
         </div>
-        <Link href="/dashboard/vendor/routers/add">
-          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
-            <Plus className="w-4 h-4" />
-            Add Router
-          </Button>
-        </Link>
       </div>
 
-      {/* Search */}
+      {/* Search & Filter */}
       {routers && routers.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by name or IP address..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="bg-card border-border pl-10"
-          />
-        </div>
+        <SearchFilterControls
+          searchTerm={searchTerm}
+          onSearchChange={(val) => {
+            setSearchTerm(val);
+            setCurrentPage(1);
+          }}
+          searchPlaceholder="Search by name or IP address..."
+          filters={[
+            {
+              value: statusFilter,
+              onValueChange: (val) => {
+                setStatusFilter(val);
+                setCurrentPage(1);
+              },
+              placeholder: "Filter Status",
+              options: [
+                { label: "All Statuses", value: "all" },
+                { label: "Online", value: "online" },
+                { label: "Offline", value: "offline" },
+              ],
+            },
+          ]}
+        />
       )}
 
       {/* Routers Grid */}
@@ -84,49 +92,17 @@ export default function RoutersPage() {
             ))}
           </div>
 
-          {/* Pagination */}
-          {filteredAndPaginatedRouters.totalPages > 1 && (
-            <div className="flex items-center justify-between pt-6 border-t border-border">
-              <p className="text-sm text-muted-foreground">
-                Page {currentPage} of {filteredAndPaginatedRouters.totalPages} (
-                {filteredAndPaginatedRouters.totalCount} routers)
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() =>
-                    setCurrentPage(Math.min(filteredAndPaginatedRouters.totalPages, currentPage + 1))
-                  }
-                  disabled={currentPage === filteredAndPaginatedRouters.totalPages}
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={filteredAndPaginatedRouters.totalPages}
+            totalItems={filteredAndPaginatedRouters.totalCount}
+            itemsLabel="routers"
+            onPageChange={setCurrentPage}
+          />
         </>
       ) : (
         <div className="flex flex-col items-center justify-center h-64 rounded-lg border border-border bg-card">
-          <p className="text-muted-foreground mb-4">No routers yet</p>
-          <Link href="/dashboard/vendor/routers/add">
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2">
-              <Plus className="w-4 h-4" />
-              Add First Router
-            </Button>
-          </Link>
+          <p className="text-muted-foreground">No routers available</p>
         </div>
       )}
     </div>

@@ -5,7 +5,9 @@ import { useSessions } from '@/lib/api/queries';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Activity, Power, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Activity, Power } from 'lucide-react';
+import { SearchFilterControls } from '@/components/dashboard/search-filter-controls';
+import { PaginationControls } from '@/components/dashboard/pagination-controls';
 import {
   Dialog,
   DialogContent,
@@ -30,16 +32,29 @@ export default function SessionsPage() {
   const disconnectedSessions = sessions?.filter((s) => s.status === 'disconnected').length || 0;
   const totalBandwidth = sessions?.reduce((sum, s) => sum + s.bytesDownloaded + s.bytesUploaded, 0) || 0;
 
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
   const paginatedSessions = useMemo(() => {
-    if (!sessions) return { sessions: [], totalPages: 0 };
-    const totalPages = Math.ceil(sessions.length / itemsPerPage);
+    if (!sessions) return { sessions: [], totalPages: 0, totalCount: 0 };
+    
+    const filtered = sessions.filter((session) => {
+      const matchesSearch =
+        session.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        session.routerId.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || session.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+
+    const totalPages = Math.ceil(filtered.length / itemsPerPage);
     const startIdx = (currentPage - 1) * itemsPerPage;
     const endIdx = startIdx + itemsPerPage;
     return {
-      sessions: sessions.slice(startIdx, endIdx),
+      sessions: filtered.slice(startIdx, endIdx),
       totalPages,
+      totalCount: filtered.length,
     };
-  }, [sessions, currentPage]);
+  }, [sessions, searchTerm, statusFilter, currentPage]);
 
   const formatBytes = (bytes: number) => {
     const gb = (bytes / 1024 / 1024 / 1024).toFixed(2);
@@ -101,6 +116,31 @@ export default function SessionsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Search & Filter Controls */}
+      <SearchFilterControls
+        searchTerm={searchTerm}
+        onSearchChange={(val) => {
+          setSearchTerm(val);
+          setCurrentPage(1);
+        }}
+        searchPlaceholder="Search by username or router ID..."
+        filters={[
+          {
+            value: statusFilter,
+            onValueChange: (val) => {
+              setStatusFilter(val);
+              setCurrentPage(1);
+            },
+            placeholder: "Filter Status",
+            options: [
+              { label: "All Statuses", value: "all" },
+              { label: "Active", value: "active" },
+              { label: "Disconnected", value: "disconnected" },
+            ],
+          },
+        ]}
+      />
 
       {/* Sessions Table */}
       <Card className="bg-card border-border">
@@ -226,36 +266,13 @@ export default function SessionsPage() {
             </table>
           </div>
 
-          {/* Pagination */}
-          {paginatedSessions.totalPages > 1 && (
-            <div className="flex items-center justify-between mt-6 pt-6 border-t border-border">
-              <p className="text-sm text-muted-foreground">
-                Page {currentPage} of {paginatedSessions.totalPages} ({sessions?.length || 0} sessions)
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setCurrentPage(Math.min(paginatedSessions.totalPages, currentPage + 1))}
-                  disabled={currentPage === paginatedSessions.totalPages}
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={paginatedSessions.totalPages}
+            totalItems={paginatedSessions.totalCount}
+            itemsLabel="sessions"
+            onPageChange={setCurrentPage}
+          />
         </CardContent>
       </Card>
     </div>
